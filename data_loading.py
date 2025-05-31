@@ -1,5 +1,4 @@
 import os
-from matplotlib import pyplot as plt
 import numpy as np
 from PIL import Image
 
