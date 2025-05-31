@@ -3,7 +3,7 @@ from typing import Any, Self
 
 import numpy as np
 
-from Models.wandb_stuff import WandbConfig
+from Models.WandbConfig import WandbConfig
 
 
 class ModelBase(ABC):

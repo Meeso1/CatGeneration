@@ -6,9 +6,11 @@ import tempfile
 from typing import Any
 import wandb
 
+
 @dataclass
 class WandbConfig:
-    project: str
+    PROJECT_NAME = "cat-generation"
+    
     experiment_name: str
     config_name: str
     artifact_name: str | None = None
@@ -20,7 +22,7 @@ class WandbConfig:
             return
         
         wandb.init(
-            project=self.project,
+            project=self.PROJECT_NAME,
             name=self.experiment_name,
             config=self.config_name,
             settings=wandb.Settings(silent=True)
@@ -54,8 +56,8 @@ class WandbConfig:
         wandb.finish()
 
     @staticmethod
-    def get_artifact_from_wandb(project: str, artifact_name: str, version: str = "latest") -> Any:
-        artifact = wandb.Api().artifact(f"{project}/{artifact_name}:{version}")
+    def get_artifact_from_wandb(artifact_name: str, version: str = "latest") -> Any:
+        artifact = wandb.Api().artifact(f"{WandbConfig.PROJECT_NAME}/{artifact_name}:{version}")
         
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_dir = artifact.download(root=temp_dir)
