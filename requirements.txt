@@ -5,4 +5,5 @@ seaborn==0.13.2
 torch==2.7.0
 pillow==11.2.1
 wandb==0.19.11
+kagglehub==0.3.12
 optimization @ git+https://github.com/Meeso1/optimization@main
