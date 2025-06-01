@@ -20,7 +20,11 @@ class ModelBase(ABC):
         pass        
     
     @abstractmethod
-    def generate(self, latent_vector: np.ndarray | None = None) -> np.ndarray:
+    def generate(self, n_samples: int) -> np.ndarray:
+        pass
+    
+    @abstractmethod
+    def generate_from_latent(self, latent_vectors: np.ndarray) -> np.ndarray:
         pass
     
     def with_wandb(self, wandb_config: WandbConfig) -> Self:
