@@ -15,6 +15,7 @@ class VariationalAutoEncoder(ModelBase):
         latent_dim: int = 128,
         hidden_dims: list[int] = [32, 64, 128, 256, 512],
         learning_rate: float = 1e-3,
+        lr_decay: float = 1.0,
         beta_1: float = 0.9,
         beta_2: float = 0.999,
         weight_decay: float = 1e-2,
@@ -23,6 +24,7 @@ class VariationalAutoEncoder(ModelBase):
     ) -> None:
         super().__init__()
         self.learning_rate = learning_rate
+        self.lr_decay = lr_decay
         self.latent_dim = latent_dim
         self.hidden_dims = hidden_dims
         self.beta_1 = beta_1
@@ -34,6 +36,7 @@ class VariationalAutoEncoder(ModelBase):
         
         self.model: VariationalAutoEncoder.VariationalAutoEncoderModule | None = None
         self.optimizer: torch.optim.Optimizer | None = None
+        self.scheduler: torch.optim.lr_scheduler.ExponentialLR | None = None
         self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
        
     def train(
@@ -55,6 +58,10 @@ class VariationalAutoEncoder(ModelBase):
             metrics = self._train_epoch(loader)
             self._print_metrics_if_needed(metrics, epoch, epochs)
             
+            # Step the learning rate scheduler
+            if self.scheduler is not None:
+                self.scheduler.step()
+            
             if self.wandb_config is not None:
                 self.wandb_config.log(metrics.to_dict())
         
@@ -72,6 +79,7 @@ class VariationalAutoEncoder(ModelBase):
             betas=(self.beta_1, self.beta_2),
             weight_decay=self.weight_decay
         )
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=self.lr_decay)
         
     def _validate_and_make_loader(self, X: np.ndarray, batch_size: int) -> DataLoader:
         self._validate_train_data(X)
@@ -105,10 +113,11 @@ class VariationalAutoEncoder(ModelBase):
         total_loss = 0.0
         total_recon_loss = 0.0
         total_kl_loss = 0.0
-        num_batches = 0
+        total_samples = 0
         
         for batch in loader:
             x = batch[0]  # Get images from the batch
+            batch_size = x.size(0)
             
             # Zero gradients
             self.optimizer.zero_grad()
@@ -131,21 +140,21 @@ class VariationalAutoEncoder(ModelBase):
             total_loss += loss.item()
             total_recon_loss += recon_loss.item()
             total_kl_loss += kl_loss.item()
-            num_batches += 1
+            total_samples += batch_size
         
-        # Return average losses for logging
         return VariationalAutoEncoder.EpochMetrics(
-            total_loss=total_loss / num_batches,
-            recon_loss=total_recon_loss / num_batches,
-            kl_loss=total_kl_loss / num_batches
+            total_loss=total_loss / total_samples,
+            recon_loss=total_recon_loss / total_samples,
+            kl_loss=total_kl_loss / total_samples
         )
     
     def _print_metrics_if_needed(self, metrics: EpochMetrics, epoch: int, total_epochs: int) -> None:
         if self.print_every is None or epoch % self.print_every != 0:
             return
         
+        current_lr = self.optimizer.param_groups[0]['lr']
         max_epochs_str_len = len(str(total_epochs))
-        print(f"Epoch {epoch:{max_epochs_str_len}d}/{total_epochs}: Total Loss: {metrics.total_loss:.4f}, Recon Loss: {metrics.recon_loss:.4f}, KL Loss: {metrics.kl_loss:.4f}")
+        print(f"Epoch {epoch:{max_epochs_str_len}d}/{total_epochs}: Total Loss: {metrics.total_loss:.4f}, Recon Loss: {metrics.recon_loss:.4f}, KL Loss: {metrics.kl_loss:.4f}, LR: {current_lr:.6f}")
     
     def generate(self, n_samples: int) -> np.ndarray:
         return self.generate_from_latent(np.random.randn(n_samples, self.latent_dim))
@@ -168,6 +177,7 @@ class VariationalAutoEncoder(ModelBase):
     def get_model_config_for_wandb(self) -> dict[str, Any]:
         return {
             "learning_rate": self.learning_rate,
+            "lr_decay": self.lr_decay,
             "latent_dim": self.latent_dim,
             "hidden_dims": self.hidden_dims,
             "beta_1": self.beta_1,
@@ -179,6 +189,7 @@ class VariationalAutoEncoder(ModelBase):
     def get_state_dict(self) -> dict[str, Any]:
         return {
             "learning_rate": self.learning_rate,
+            "lr_decay": self.lr_decay,
             "latent_dim": self.latent_dim,
             "hidden_dims": self.hidden_dims,
             "beta_1": self.beta_1,
@@ -188,6 +199,7 @@ class VariationalAutoEncoder(ModelBase):
             
             "model": self.model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
+            "scheduler": self.scheduler.state_dict(),
             
             "wandb_config": self.wandb_config
         }
@@ -201,11 +213,13 @@ class VariationalAutoEncoder(ModelBase):
             beta_1=state_dict["beta_1"],
             beta_2=state_dict["beta_2"],
             weight_decay=state_dict["weight_decay"],
-            kl_weight=state_dict["kl_weight"]
+            kl_weight=state_dict["kl_weight"],
+            lr_decay=state_dict["lr_decay"]
         ).with_wandb(state_dict["wandb_config"])
         
         loaded_model.model.load_state_dict(state_dict["model"])
         loaded_model.optimizer.load_state_dict(state_dict["optimizer"])
+        loaded_model.scheduler.load_state_dict(state_dict["scheduler"])
         
         return loaded_model
     
@@ -219,8 +233,8 @@ class VariationalAutoEncoder(ModelBase):
             self.latent_dim = latent_dim
             self.hidden_dims = hidden_dims
             
-            # Convolutions: 64x64 -> 32x32 -> 16x16 -> 8x8 -> 4x4 -> 2x2
-            encoder_output_size = hidden_dims[-1] * 2 * 2
+            encoder_output_img_width = 64 // 2 ** len(hidden_dims)
+            encoder_output_size = hidden_dims[-1] * encoder_output_img_width ** 2
             
             self.encoder = self._build_encoder(hidden_dims)
             
