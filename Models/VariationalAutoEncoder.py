@@ -300,7 +300,6 @@ class VariationalAutoEncoder(ModelBase):
             result = self.decoder_input(z)
             result = result.view(-1, self.hidden_dims[-1], 2, 2)
             result = self.decoder(result)
-            result = self.final_layer(result)
             return result
         
         def reparameterize(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
