@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any, Self
 import numpy as np
 import torch.optim.adamw
@@ -17,7 +18,8 @@ class VariationalAutoEncoder(ModelBase):
         beta_1: float = 0.9,
         beta_2: float = 0.999,
         weight_decay: float = 1e-2,
-        kl_weight: float = 1.0
+        kl_weight: float = 1.0,
+        print_every: int | None = None
     ) -> None:
         super().__init__()
         self.learning_rate = learning_rate
@@ -27,6 +29,8 @@ class VariationalAutoEncoder(ModelBase):
         self.beta_2 = beta_2
         self.weight_decay = weight_decay
         self.kl_weight = kl_weight
+        
+        self.print_every = print_every
         
         self.model: VariationalAutoEncoder.VariationalAutoEncoderModule | None = None
         self.optimizer: torch.optim.Optimizer | None = None
@@ -47,11 +51,12 @@ class VariationalAutoEncoder(ModelBase):
         if self.wandb_config is not None:
             self.wandb_config.init_if_needed()
         
-        for _ in range(epochs):
+        for epoch in range(1, epochs + 1):
             metrics = self._train_epoch(loader)
+            self._print_metrics_if_needed(metrics, epoch, epochs)
             
             if self.wandb_config is not None:
-                self.wandb_config.log(metrics)
+                self.wandb_config.log(metrics.to_dict())
         
         if self.wandb_config is not None:
             self.wandb_config.finish_and_save_if_needed(self.model.state_dict())
@@ -83,7 +88,20 @@ class VariationalAutoEncoder(ModelBase):
         if np.max(X) > 1 or np.min(X) < 0:
             raise ValueError(f"X must be normalized to [0, 1] - got max: {np.max(X)}, min: {np.min(X)}")
     
-    def _train_epoch(self, loader: DataLoader) -> dict[str, float]:
+    @dataclass
+    class EpochMetrics:
+        total_loss: float
+        recon_loss: float
+        kl_loss: float
+        
+        def to_dict(self) -> dict[str, float]:
+            return {
+                "total_loss": self.total_loss,
+                "recon_loss": self.recon_loss,
+                "kl_loss": self.kl_loss
+            }
+    
+    def _train_epoch(self, loader: DataLoader) -> EpochMetrics:
         total_loss = 0.0
         total_recon_loss = 0.0
         total_kl_loss = 0.0
@@ -116,11 +134,18 @@ class VariationalAutoEncoder(ModelBase):
             num_batches += 1
         
         # Return average losses for logging
-        return {
-            'total_loss': total_loss / num_batches,
-            'reconstruction_loss': total_recon_loss / num_batches,
-            'kl_loss': total_kl_loss / num_batches
-        }
+        return VariationalAutoEncoder.EpochMetrics(
+            total_loss=total_loss / num_batches,
+            recon_loss=total_recon_loss / num_batches,
+            kl_loss=total_kl_loss / num_batches
+        )
+    
+    def _print_metrics_if_needed(self, metrics: EpochMetrics, epoch: int, total_epochs: int) -> None:
+        if self.print_every is None or epoch % self.print_every != 0:
+            return
+        
+        max_epochs_str_len = len(str(total_epochs))
+        print(f"Epoch {epoch:{max_epochs_str_len}d}/{total_epochs}: Total Loss: {metrics.total_loss:.4f}, Recon Loss: {metrics.recon_loss:.4f}, KL Loss: {metrics.kl_loss:.4f}")
     
     def generate(self, n_samples: int) -> np.ndarray:
         return self.generate_from_latent(np.random.randn(n_samples, self.latent_dim))
