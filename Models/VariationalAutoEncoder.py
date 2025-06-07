@@ -72,7 +72,7 @@ class VariationalAutoEncoder(ModelBase):
                 self.wandb_config.log(metrics.to_dict())
         
         if self.wandb_config is not None:
-            self.wandb_config.finish_and_save_if_needed(self.model.state_dict())
+            self.wandb_config.finish_and_save_if_needed(self.get_state_dict())
     
     def _initialize_model(self) -> None:
         self.model = self.VariationalAutoEncoderModule(
