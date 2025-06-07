@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Self
 import numpy as np
 import torch.optim.adamw
+from FidScorer import FidScorer
 from Models.ModelBase import ModelBase
 import torch
 import torch.nn as nn
@@ -20,7 +21,9 @@ class VariationalAutoEncoder(ModelBase):
         beta_2: float = 0.999,
         weight_decay: float = 1e-2,
         kl_weight: float = 1.0,
-        print_every: int | None = None
+        print_every: int | None = None,
+        fid_scorer: FidScorer | None = None,
+        n_images_for_fid: int = 1000
     ) -> None:
         super().__init__()
         self.learning_rate = learning_rate
@@ -33,6 +36,9 @@ class VariationalAutoEncoder(ModelBase):
         self.kl_weight = kl_weight
         
         self.print_every = print_every
+        self.fid_scorer = fid_scorer
+        self.n_images_for_fid = n_images_for_fid
+        self.fid_metrics_for_real_images: tuple[np.ndarray, np.ndarray] | None = None
         
         self.model: VariationalAutoEncoder.VariationalAutoEncoderModule | None = None
         self.optimizer: torch.optim.Optimizer | None = None
@@ -101,12 +107,14 @@ class VariationalAutoEncoder(ModelBase):
         total_loss: float
         recon_loss: float
         kl_loss: float
+        fid_score: float | None
         
         def to_dict(self) -> dict[str, float]:
             return {
                 "total_loss": self.total_loss,
                 "recon_loss": self.recon_loss,
-                "kl_loss": self.kl_loss
+                "kl_loss": self.kl_loss,
+                "fid_score": self.fid_score
             }
     
     def _train_epoch(self, loader: DataLoader) -> EpochMetrics:
@@ -145,8 +153,20 @@ class VariationalAutoEncoder(ModelBase):
         return VariationalAutoEncoder.EpochMetrics(
             total_loss=total_loss / total_samples,
             recon_loss=total_recon_loss / total_samples,
-            kl_loss=total_kl_loss / total_samples
+            kl_loss=total_kl_loss / total_samples,
+            fid_score=self._calculate_fid_score(loader)
         )
+        
+    def _calculate_fid_score(self, loader: DataLoader) -> float | None:
+        if self.fid_scorer is None:
+            return None
+        
+        if self.fid_metrics_for_real_images is None:
+            features = self.fid_scorer.extract_features_from_dataloader(loader)
+            self.fid_metrics_for_real_images = self.fid_scorer.calculate_statistics(features)
+            
+        generated_images = self.generate(self.n_images_for_fid)
+        return self.fid_scorer.calculate_fid(self.fid_metrics_for_real_images, generated_images)
     
     def _print_metrics_if_needed(self, metrics: EpochMetrics, epoch: int, total_epochs: int) -> None:
         if self.print_every is None or epoch % self.print_every != 0:
@@ -154,7 +174,10 @@ class VariationalAutoEncoder(ModelBase):
         
         current_lr = self.optimizer.param_groups[0]['lr']
         max_epochs_str_len = len(str(total_epochs))
-        print(f"Epoch {epoch:{max_epochs_str_len}d}/{total_epochs}: Total Loss: {metrics.total_loss:.4f}, Recon Loss: {metrics.recon_loss:.4f}, KL Loss: {metrics.kl_loss:.4f}, LR: {current_lr:.6f}")
+        
+        fid_score_str = f", FID: {metrics.fid_score:.4f}" if metrics.fid_score is not None else ""
+        
+        print(f"Epoch {epoch:{max_epochs_str_len}d}/{total_epochs}: Total Loss: {metrics.total_loss:.4f}, (Recon: {metrics.recon_loss:.4f} + KL: {metrics.kl_loss:.4f}), LR: {current_lr:.6f}{fid_score_str}")
     
     def generate(self, n_samples: int) -> np.ndarray:
         return self.generate_from_latent(np.random.randn(n_samples, self.latent_dim))

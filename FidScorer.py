@@ -4,8 +4,7 @@ import torch
 import torch.nn as nn
 from torchvision import models, transforms
 from scipy.linalg import sqrtm
-from typing import Tuple
-from PIL import Image
+from torch.utils.data import TensorDataset, DataLoader
 
 
 class FidScorer:
@@ -37,6 +36,7 @@ class FidScorer:
         
         Args:
             images: Array of shape (N, H, W, C) with values in [0, 1]
+            batch_size: Batch size for processing
             
         Returns:
             Features array of shape (N, 2048)
@@ -47,28 +47,47 @@ class FidScorer:
             or images.min() < 0.0:
             raise ValueError("Images must be in (N, H, W, C) format with dimensions nx64x64x3 and values in [0, 1]")
         
+        # Convert from (N, H, W, C) to (N, C, H, W) for PyTorch
+        images_transposed = np.transpose(images, (0, 3, 1, 2))
+        
+        dataset = TensorDataset(torch.from_numpy(images_transposed).float())
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+        
+        return self.extract_features_from_dataloader(dataloader)
+
+    def extract_features_from_dataloader(self, dataloader: DataLoader) -> np.ndarray:
+        """
+        Extract features from images in a DataLoader using InceptionV3.
+        
+        Args:
+            dataloader: DataLoader containing images in (N, C, H, W) format with values in [0, 1]
+            
+        Returns:
+            Features array of shape (N, 2048)
+        """
         if self.inception_model is None or self.transform is None:
             self.inception_model = self._load_inception_model()
             self.transform = self._get_transform()
         
-        # Convert from (N, H, W, C) to (N, C, H, W) and scale to [-1, 1]
-        images = np.transpose(images, (0, 3, 1, 2))
-        images = (images * 2.0) - 1.0
-        
-        # Convert to tensor
-        images_tensor = torch.from_numpy(images).float()
-        images_tensor = self.transform(images_tensor).to(self.device)
-        
         features_list = []
         with torch.no_grad():
-            for i in range(0, images_tensor.shape[0], batch_size):
-                batch = images_tensor[i:i + batch_size]
-                batch_features = self.inception_model(batch)
+            for batch in dataloader:
+                images = batch[0]
+                
+                # Validate input format
+                if len(images.shape) != 4 or images.shape[1:] != (3, 64, 64):
+                    raise ValueError(f"Images must be in (N, C, H, W) format with 3x64x64 shape, got shape: {images.shape}")
+                
+                images = (images * 2.0) - 1.0                
+                images = self.transform(images).to(self.device)
+                
+                # Extract features
+                batch_features = self.inception_model(images)
                 features_list.append(batch_features.cpu().numpy())
         
         return np.concatenate(features_list, axis=0)
     
-    def calculate_statistics(self, features: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def calculate_statistics(self, features: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Calculate mean and covariance matrix of features."""
         mu = np.mean(features, axis=0)
         sigma = np.cov(features, rowvar=False)
