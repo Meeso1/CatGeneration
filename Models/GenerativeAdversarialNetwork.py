@@ -306,6 +306,15 @@ class GenerativeAdversarialNetwork(ModelBase):
             
             self.main = self._build_generator(hidden_dims)
             
+            # Calculate final output size after all deconv layers
+            final_size = self.initial_size * (2 ** len(hidden_dims))
+            
+            # Add adaptive layer if needed to get to 64x64
+            if final_size != 64:
+                self.final_resize = nn.AdaptiveAvgPool2d((64, 64))
+            else:
+                self.final_resize = nn.Identity()
+            
         def _build_generator(self, hidden_dims: list[int]) -> nn.Module:
             layers = []
             
@@ -349,6 +358,9 @@ class GenerativeAdversarialNetwork(ModelBase):
             
             # Generate image
             x = self.main(x)
+            
+            # Ensure output is 64x64
+            x = self.final_resize(x)
             return x
 
     class DiscriminatorModule(nn.Module):
