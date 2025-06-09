@@ -70,6 +70,66 @@ class WandbConfig:
             with open(model_path, "rb") as f:
                 return  WandbConfig.TorchDeviceUnpickler(f, device).load()
 
+    @staticmethod
+    def get_run_metrics(run_name: str) -> dict[str, list[float | int | str]]:
+        """
+        Retrieves metrics from a Wandb run and returns them in a format suitable for plotting.
+        Finds the latest run with the given name.
+        
+        Args:
+            run_name: The name of the run to retrieve metrics from
+            
+        Returns:
+            Dictionary where keys are metric names and values are lists of metric values over time
+            
+        Raises:
+            ValueError: If no run with the given name is found, with a list of available runs
+        """
+        api = wandb.Api()
+        
+        try:
+            # Get all runs from the project
+            runs = api.runs(WandbConfig.PROJECT_NAME)
+            
+            # Find runs with matching name
+            matching_runs = [run for run in runs if run.name == run_name]
+            
+            if not matching_runs:
+                # No matching runs found, show available runs
+                available_runs = [run.name for run in runs if run.name]
+                available_runs_str = "\n  - ".join(available_runs) if available_runs else "No runs found"
+                
+                raise ValueError(
+                    f"No run with name '{run_name}' found in project '{WandbConfig.PROJECT_NAME}'.\n"
+                    f"Available runs:\n  - {available_runs_str}"
+                )
+            
+            # Use the latest run (first in the list, as wandb returns runs sorted by creation time desc)
+            run = matching_runs[0]
+            
+        except ValueError:
+            # Re-raise ValueError as-is
+            raise
+        except Exception as e:
+            raise ValueError(
+                f"Error retrieving runs from project '{WandbConfig.PROJECT_NAME}': {e}"
+            )
+        
+        # Get the history as a pandas DataFrame
+        history = run.history()
+        
+        # Convert to dict of lists, excluding system columns
+        metrics = {}
+        for column in history.columns:
+            # Skip system columns like _step, _runtime, etc.
+            if not column.startswith('_'):
+                # Convert to list
+                values = history[column].tolist()
+                if values:  # Only include non-empty lists
+                    metrics[column] = values
+        
+        return metrics
+
     class TorchDeviceUnpickler(pickle.Unpickler):
         def __init__(self, file: io.BytesIO, device: torch.device):
             self.device = device
