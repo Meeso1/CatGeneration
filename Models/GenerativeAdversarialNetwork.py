@@ -144,7 +144,9 @@ class GenerativeAdversarialNetwork(ModelBase):
     @dataclass
     class WGANGPEpochMetrics:
         generator_loss: float
-        critic_loss: float
+        discriminator_loss: float
+        discriminator_real_accuracy: float
+        discriminator_fake_accuracy: float
         wasserstein_distance: float
         gradient_penalty: float
         fid_score: float | None
@@ -152,7 +154,9 @@ class GenerativeAdversarialNetwork(ModelBase):
         def to_dict(self) -> dict[str, float]:
             return {
                 "generator_loss": self.generator_loss,
-                "critic_loss": self.critic_loss,
+                "discriminator_loss": self.discriminator_loss,
+                "discriminator_real_accuracy": self.discriminator_real_accuracy,
+                "discriminator_fake_accuracy": self.discriminator_fake_accuracy,
                 "wasserstein_distance": self.wasserstein_distance,
                 "gradient_penalty": self.gradient_penalty,
                 "fid_score": self.fid_score
@@ -229,6 +233,9 @@ class GenerativeAdversarialNetwork(ModelBase):
         total_critic_loss = 0.0
         total_wasserstein_distance = 0.0
         total_gradient_penalty = 0.0
+        total_disc_real_correct = 0
+        total_disc_fake_correct = 0
+        total_samples = 0
         
         for batch in loader:
             real_images = batch[0]
@@ -269,15 +276,27 @@ class GenerativeAdversarialNetwork(ModelBase):
             gen_loss.backward()
             self.optimizer_generator.step()
             
+            # Calculate accuracies (real should be positive, fake should be negative)
+            real_predictions = (real_outputs > 0).float()
+            fake_predictions = (fake_outputs < 0).float()
+            
+            disc_real_correct = real_predictions.sum().item()
+            disc_fake_correct = fake_predictions.sum().item()
+            
             # Accumulate metrics
             total_gen_loss += gen_loss.item()
             total_critic_loss += critic_loss.item()
             total_wasserstein_distance += wasserstein_distance.item()
             total_gradient_penalty += gradient_penalty.item()
+            total_disc_real_correct += disc_real_correct
+            total_disc_fake_correct += disc_fake_correct
+            total_samples += batch_size
         
         return GenerativeAdversarialNetwork.WGANGPEpochMetrics(
             generator_loss=total_gen_loss / len(loader),
-            critic_loss=total_critic_loss / len(loader),
+            discriminator_loss=total_critic_loss / len(loader),
+            discriminator_real_accuracy=total_disc_real_correct / total_samples,
+            discriminator_fake_accuracy=total_disc_fake_correct / total_samples,
             wasserstein_distance=total_wasserstein_distance / len(loader),
             gradient_penalty=total_gradient_penalty / len(loader),
             fid_score=self._calculate_fid_score(loader)
@@ -351,7 +370,8 @@ class GenerativeAdversarialNetwork(ModelBase):
         
         print(f"Epoch {epoch:{max_epochs_str_len}d}/{total_epochs}: "
               f"Gen Loss: {metrics.generator_loss:.4f}, "
-              f"Critic Loss: {metrics.critic_loss:.4f}, "
+              f"Disc Loss: {metrics.discriminator_loss:.4f}, "
+              f"Disc Acc (Real/Fake): {metrics.discriminator_real_accuracy:.3f}/{metrics.discriminator_fake_accuracy:.3f}, "
               f"W-Distance: {metrics.wasserstein_distance:.4f}, "
               f"GP: {metrics.gradient_penalty:.4f}, "
               f"LR (Gen/Critic): {current_lr_gen:.6f}/{current_lr_critic:.6f}{fid_score_str}")
