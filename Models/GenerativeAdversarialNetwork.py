@@ -68,7 +68,7 @@ class GenerativeAdversarialNetwork(ModelBase):
         self.generator.train()
         self.discriminator.train()
         if self.wandb_config is not None:
-            self.wandb_config.init_if_needed()
+            self.wandb_config.init_if_needed(self.get_model_config_for_wandb())
         
         for epoch in range(1, epochs + 1):
             if self.use_wgan_gp:

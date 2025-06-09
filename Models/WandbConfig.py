@@ -14,19 +14,18 @@ class WandbConfig:
     PROJECT_NAME = "cat-generation"
     
     experiment_name: str
-    config_name: str
     artifact_name: str | None = None
     # Set init_project to False to manually call wandb.init()/wandb.finish() to be able to call train() multiple times or something
     init_project: bool = True
     
-    def init_if_needed(self) -> None:
+    def init_if_needed(self, model_config: dict[str, Any]) -> None:
         if not self.init_project:
             return
         
         wandb.init(
             project=self.PROJECT_NAME,
             name=self.experiment_name,
-            config=self.config_name,
+            config=model_config,
             settings=wandb.Settings(silent=True)
         )
         

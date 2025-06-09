@@ -58,7 +58,7 @@ class VariationalAutoEncoder(ModelBase):
         
         self.model.train()
         if self.wandb_config is not None:
-            self.wandb_config.init_if_needed()
+            self.wandb_config.init_if_needed(self.get_model_config_for_wandb())
         
         for epoch in range(1, epochs + 1):
             metrics = self._train_epoch(loader)
