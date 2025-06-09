@@ -240,6 +240,7 @@ class VariationalAutoEncoder(ModelBase):
             lr_decay=state_dict["lr_decay"]
         ).with_wandb(state_dict["wandb_config"])
         
+        loaded_model._initialize_model()
         loaded_model.model.load_state_dict(state_dict["model"])
         loaded_model.optimizer.load_state_dict(state_dict["optimizer"])
         loaded_model.scheduler.load_state_dict(state_dict["scheduler"])

@@ -5,6 +5,8 @@ import shutil
 import tempfile
 from typing import Any
 import wandb
+import torch
+import io
 
 
 @dataclass
@@ -63,5 +65,18 @@ class WandbConfig:
             artifact_dir = artifact.download(root=temp_dir)
             model_path = os.path.join(artifact_dir, "model.pkl")
             
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            
             with open(model_path, "rb") as f:
-                return pickle.load(f)
+                return  WandbConfig.TorchDeviceUnpickler(f, device).load()
+
+    class TorchDeviceUnpickler(pickle.Unpickler):
+        def __init__(self, file: io.BytesIO, device: torch.device):
+            self.device = device
+            super().__init__(file)
+        
+        def find_class(self, module, name):
+            if module == 'torch.storage' and name == '_load_from_bytes':
+                return lambda b: torch.load(io.BytesIO(b), map_location=self.device)
+            else:
+                return super().find_class(module, name)

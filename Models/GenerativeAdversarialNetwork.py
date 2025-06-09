@@ -282,6 +282,7 @@ class GenerativeAdversarialNetwork(ModelBase):
             weight_decay=state_dict["weight_decay"]
         ).with_wandb(state_dict["wandb_config"])
         
+        loaded_model._initialize_model()
         loaded_model.generator.load_state_dict(state_dict["generator"])
         loaded_model.discriminator.load_state_dict(state_dict["discriminator"])
         loaded_model.optimizer_generator.load_state_dict(state_dict["optimizer_generator"])
