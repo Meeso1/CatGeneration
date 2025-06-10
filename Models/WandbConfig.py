@@ -7,6 +7,7 @@ from typing import Any
 import wandb
 import torch
 import io
+import pandas as pd
 
 
 @dataclass
@@ -114,8 +115,23 @@ class WandbConfig:
                 f"Error retrieving runs from project '{WandbConfig.PROJECT_NAME}': {e}"
             )
         
-        # Get the history as a pandas DataFrame
-        history = run.history()
+        # Get the history as a pandas DataFrame - force pandas to be loaded
+        try:
+            # This approach helps avoid the LazyModule issue
+            history = run.history()
+            # If history is empty or has issues, try alternative approach
+            if history is None or history.empty:
+                history = run.scan_history()
+                history = pd.DataFrame(list(history))
+        except AttributeError as e:
+            if "LazyModule" in str(e):
+                # Fallback method for LazyModule issues
+                history_data = []
+                for step in run.scan_history():
+                    history_data.append(step)
+                history = pd.DataFrame(history_data)
+            else:
+                raise
         
         # Convert to dict of lists, excluding system columns
         metrics = {}
